@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="greenformer",
-    version="0.2.2",
+    version="0.2.3",
     author="Samuel Cahyawijaya",
     author_email="samuel.cahyawijaya@gmail.com",
     description="Automatic Factorization package for PyTorch modules",
@@ -22,16 +22,17 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "matrix-fact==1.1.2",
-        "transformers==4.8.2",
-        "torch>=1.5.0",
+        "matrix-fact",
+        "transformers",
+        "torch",
+        "tqdm",
         "scipy",
-        "cvxopt==1.2.6",
-        "matplotlib==3.4.2",
-        "seaborn==0.11.1",
-        "sklearn"
+        "cvxopt",
+        "matplotlib",
+        "seaborn",
+        "scikit-learn",
     ],
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),
-    python_requires=">=3.3",
+    python_requires=">=3.10",
 )
