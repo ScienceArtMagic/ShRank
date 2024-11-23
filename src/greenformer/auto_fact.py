@@ -1,45 +1,9 @@
 import copy
 import torch
 import torch.nn as nn
-import matrix_fact
 from .lr_module import LED, CED
 import warnings
 from transformers.modeling_utils import Conv1D as HFConv1D
-
-r"""
-Input:
-    weight - weight of the original nn.module to be factorized
-    rank - the rank to be applied for low-rank factorization
-Output:
-    low-rank factorization weight matrix U and V
-"""
-
-
-def linear_snmf(weight, rank, num_iter=10):
-    orig_device = weight.device
-    mdl = matrix_fact.TorchSNMF(weight, rank)
-    mdl.factorize(num_iter)
-    return mdl.W, mdl.H
-
-
-r"""
-Input:
-    weight - weight of the original nn.module to be factorized
-    rank - the rank to be applied for low-rank factorization
-Output:
-    low-rank factorization weight matrix U and V
-"""
-
-
-def linear_nmf(weight, rank, num_iter=10):
-    orig_device = weight.device
-    data = weight.cpu().detach().numpy()
-    mdl = matrix_fact.NMF(data, rank)
-    mdl.factorize(num_iter)
-    return torch.FloatTensor(mdl.W, device=orig_device), torch.FloatTensor(
-        mdl.H, device=orig_device
-    )
-
 
 r"""
 Input:
@@ -115,18 +79,6 @@ def factorize_module(
             led_module.led_unit[1].weight.data = V.T  # Initialize V
             if module.bias is not None:
                 led_module.led_unit[1].bias = module.bias
-        elif solver == "nmf":
-            U, V = linear_nmf(weight.T, rank, num_iter=num_iter)
-            led_module.led_unit[0].weight.data = U.T  # Initialize U
-            led_module.led_unit[1].weight.data = V.T  # Initialize V
-            if module.bias is not None:
-                led_module.led_unit[1].bias = module.bias
-        elif solver == "snmf":
-            U, V = linear_snmf(weight.T, rank, num_iter=num_iter)
-            led_module.led_unit[0].weight.data = U.T  # Initialize U
-            led_module.led_unit[1].weight.data = V.T  # Initialize V
-            if module.bias is not None:
-                led_module.led_unit[1].bias = module.bias
 
         # Return module
         return led_module
@@ -164,18 +116,6 @@ def factorize_module(
             pass
         elif solver == "svd":
             U, V = linear_svd(weight.T, rank, num_iter=num_iter)
-            led_module.led_unit[0].weight.data = U.T  # Initialize U
-            led_module.led_unit[1].weight.data = V.T  # Initialize V
-            if module.bias is not None:
-                led_module.led_unit[1].bias = module.bias
-        elif solver == "nmf":
-            U, V = linear_nmf(weight.T, rank, num_iter=num_iter)
-            led_module.led_unit[0].weight.data = U.T  # Initialize U
-            led_module.led_unit[1].weight.data = V.T  # Initialize V
-            if module.bias is not None:
-                led_module.led_unit[1].bias = module.bias
-        elif solver == "snmf":
-            U, V = linear_snmf(weight.T, rank, num_iter=num_iter)
             led_module.led_unit[0].weight.data = U.T  # Initialize U
             led_module.led_unit[1].weight.data = V.T  # Initialize V
             if module.bias is not None:
@@ -230,26 +170,6 @@ def factorize_module(
             pass
         elif solver == "svd":
             u, v = linear_svd(weight.T, rank, num_iter=num_iter)
-            ced_module.ced_unit[0].weight.data = u.T.view_as(
-                ced_module.ced_unit[0].weight
-            )  # Initialize U
-            ced_module.ced_unit[1].weight.data = v.T.view_as(
-                ced_module.ced_unit[1].weight
-            )  # Initialize V
-            if module.bias is not None:
-                ced_module.ced_unit[1].bias.data = module.bias.data
-        elif solver == "nmf":
-            u, v = linear_nmf(weight.T, rank, num_iter=num_iter)
-            ced_module.ced_unit[0].weight.data = u.T.view_as(
-                ced_module.ced_unit[0].weight
-            )  # Initialize U
-            ced_module.ced_unit[1].weight.data = v.T.view_as(
-                ced_module.ced_unit[1].weight
-            )  # Initialize V
-            if module.bias is not None:
-                ced_module.ced_unit[1].bias.data = module.bias.data
-        elif solver == "snmf":
-            u, v = linear_snmf(weight.T, rank, num_iter=num_iter)
             ced_module.ced_unit[0].weight.data = u.T.view_as(
                 ced_module.ced_unit[0].weight
             )  # Initialize U
