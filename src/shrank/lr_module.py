@@ -1,7 +1,15 @@
 import torch.nn as nn
 
 class LED(nn.Module):
-    def __init__(self, in_features, out_features, r, bias=True, device='cpu'):
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        r: int,
+        bias=False,
+        device="cpu",
+    ):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -15,18 +23,31 @@ class LED(nn.Module):
         if len(inputs.shape) > 2:
             outputs_shape = list(inputs.shape[:-1]) + [self.out_features]
             inputs = inputs.view(-1,inputs.shape[-1])
-            
+
         outputs = self.led_unit(inputs)
         if outputs_shape is not None:
             outputs = outputs.view(outputs_shape)
-            
+
         return outputs
-    
+
 class CED(nn.Module):
-    def __init__(self, in_channels, out_channels, r, kernel_size, stride=1, padding=0, 
-                 dilation=1, groups=1, padding_mode='zeros', bias=True, device='cpu'):
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        r,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        padding_mode="zeros",
+        bias=False,
+        device="cpu",
+    ):
         super().__init__()
-        
+
         module_cls = None
         fact_ks = None
         if len(kernel_size) == 1:
@@ -46,6 +67,6 @@ class CED(nn.Module):
                        dilation=dilation, groups=groups, padding_mode=padding_mode, bias=False, device=device),
             module_cls(in_channels=r, out_channels=out_channels, kernel_size=fact_ks, bias=bias, device=device)
         )
-            
+
     def forward(self, inputs):
         return self.ced_unit(inputs)

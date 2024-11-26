@@ -1,20 +1,20 @@
-import os
 import setuptools
+from .src.shrank import version
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="greenformer",
-    version="0.2.3",
+    name="shrank",
+    version=version,
     author="Samuel Cahyawijaya",
     author_email="samuel.cahyawijaya@gmail.com",
     description="Automatic Factorization package for PyTorch modules",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/SamuelCahyawijaya/greenformer",
+    url="https://github.com/ScienceArtMagic/shrank",
     project_urls={
-        "Bug Tracker": "https://github.com/SamuelCahyawijaya/greenformer/issues",
+        "Bug Tracker": "https://github.com/ScienceArtMagic/shrank/issues",
     },
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -25,11 +25,6 @@ setuptools.setup(
         "transformers",
         "torch",
         "tqdm",
-        "scipy",
-        "cvxopt",
-        "matplotlib",
-        "seaborn",
-        "scikit-learn",
     ],
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),

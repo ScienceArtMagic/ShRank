@@ -1,4 +1,5 @@
 import copy
+from typing import Literal, Tuple, Union
 import torch
 import torch.nn as nn
 from .lr_module import LED, CED
@@ -14,9 +15,10 @@ Output:
 """
 
 
-def linear_svd(weight, rank, num_iter=10):
-    u, s, v = torch.svd_lowrank(weight, q=rank, niter=num_iter)
-    return (u * s), v.T
+def linear_svd(weight, rank):
+
+    U, S, Vh = torch.linalg.svd(weight.T)
+    return U[:, :rank] @ torch.diag(S[:rank]), Vh[:rank, :].T
 
 
 r"""
@@ -24,8 +26,6 @@ Input:
     module - nn.module to be factorized
     rank - the rank to be applied for low-rank factorization
     fact_led_unit - flag for skipping factorization on LED and CED unit
-    solver - solver for network initialization ('random', 'svd', 'snmf')
-    num_iter - number of iteration for  'svd' and 'snmf' solvers
     
 Output:
     low-rank version of the given module
@@ -33,17 +33,13 @@ Output:
 
 
 def factorize_module(
-    module,
-    rank,
+    module: Union[nn.Linear, HFConv1D, nn.Conv1d, nn.Conv2d, nn.Conv3d],
+    rank: int,
     fact_led_unit,
-    solver,
-    num_iter,
 ):
-    if type(module) == nn.Linear:
-        limit_rank = int(
-            (module.in_features * module.out_features)
-            / (module.in_features + module.out_features)
-        )
+    module_type = type(module)
+
+    def get_fractional_rank(rank: int, limit_rank: int) -> Tuple[int, int]:
         # Define rank from the given rank percentage
         if rank < 1:
             rank = int(limit_rank * rank)
@@ -51,15 +47,36 @@ def factorize_module(
                 return module
         rank = int(rank)
 
+        # Handle grouped convolution
+        if (
+            module_type in [nn.Conv1d, nn.Conv2d, nn.Conv3d]
+            and module.groups > 1
+            and rank % module.groups > 0
+        ):
+            rank = (1 + (rank // module.groups)) * module.groups
+
+        return rank
+
+    def warn_over_limit_rank(rank: int, limit_rank: int):
         if limit_rank <= rank:
             warnings.warn(
-                f"skipping linear with in: {module.in_features}, out: {module.out_features}, rank: {rank}"
+                f"skipping convolution with in: {module.in_channels}, out: {module.out_channels // module.groups}, rank: {rank}"
             )
-            # Ignore if input/output features is smaller than rank to prevent factorization on low dimensional input/output vector
+            # Ignore if input/output features are smaller than rank to prevent factorization on low dimensional input/output vector
             return module
 
+    if module_type in [nn.Linear, HFConv1D]:
+        in_features, out_features = (
+            (module.in_features, module.out_features)
+            if module_type == nn.Linear
+            else module.weight.shape
+        )
+        limit_rank = int((in_features * out_features) / (in_features + out_features))
+        rank = get_fractional_rank(rank, limit_rank)
+        warn_over_limit_rank(rank, limit_rank)
+
         # Extract module weight
-        weight = module.weight
+        weight = module.weight if module_type == nn.Linear else module.weight.T
 
         # Create LED unit
         led_module = LED(
@@ -71,81 +88,21 @@ def factorize_module(
         )
 
         # Initialize matrix
-        if solver == "random":
-            pass
-        elif solver == "svd":
-            U, V = linear_svd(weight.T, rank, num_iter=num_iter)
-            led_module.led_unit[0].weight.data = U.T  # Initialize U
-            led_module.led_unit[1].weight.data = V.T  # Initialize V
-            if module.bias is not None:
-                led_module.led_unit[1].bias = module.bias
+        U, V = linear_svd(weight.T, rank)
+        led_module.led_unit[0].weight.data = U.T  # Initialize U
+        led_module.led_unit[1].weight.data = V.T  # Initialize V
+        if module.bias is not None:
+            led_module.led_unit[1].bias = module.bias
 
         # Return module
         return led_module
-    elif type(module) == HFConv1D:
-        in_features, out_features = module.weight.shape
-        limit_rank = int((in_features * out_features) / (in_features + out_features))
-        # Define rank from the given rank percentage
-        if rank < 1:
-            rank = int(limit_rank * rank)
-            if rank == 0:
-                return module
-        rank = int(rank)
-
-        if limit_rank <= rank:
-            warnings.warn(
-                f"skipping linear with in: {in_features}, out: {out_features}, rank: {rank}"
-            )
-            # Ignore if input/output features is smaller than rank to prevent factorization on low dimensional input/output vector
-            return module
-
-        # Extract module weight
-        weight = module.weight.T
-
-        # Create LED unit
-        led_module = LED(
-            in_features,
-            out_features,
-            r=rank,
-            bias=module.bias is not None,
-            device=module.weight.device,
-        )
-
-        # Initialize matrix
-        if solver == "random":
-            pass
-        elif solver == "svd":
-            U, V = linear_svd(weight.T, rank, num_iter=num_iter)
-            led_module.led_unit[0].weight.data = U.T  # Initialize U
-            led_module.led_unit[1].weight.data = V.T  # Initialize V
-            if module.bias is not None:
-                led_module.led_unit[1].bias = module.bias
-
-        # Return module
-        return led_module
-    elif type(module) in [nn.Conv1d, nn.Conv2d, nn.Conv3d]:
-        # Define rank from the given rank percentage
+    elif module_type in [nn.Conv1d, nn.Conv2d, nn.Conv3d]:
         limit_rank = int(
             (module.in_channels * (module.out_channels // module.groups))
             / (module.in_channels + (module.out_channels // module.groups))
         )
-
-        if rank > 0 and rank < 1:
-            rank = int(limit_rank * rank)
-            if rank == 0:
-                return module
-        rank = int(rank)
-
-        # Handle grouped convolution
-        if module.groups > 1 and rank % module.groups > 0:
-            rank = (1 + (rank // module.groups)) * module.groups
-
-        if limit_rank <= rank:
-            warnings.warn(
-                f"skipping convolution with in: {module.in_channels}, out: {module.out_channels // module.groups}, rank: {rank}"
-            )
-            # Ignore if input/output features is smaller than rank to prevent factorization on low dimensional input/output vector
-            return module
+        rank = get_fractional_rank(rank, limit_rank)
+        warn_over_limit_rank(rank, limit_rank)
 
         # Extract layer weight
         weight = module.weight.view(module.out_channels, -1)
@@ -166,20 +123,15 @@ def factorize_module(
         )
 
         # Initialize matrix
-        if solver == "random":
-            pass
-        elif solver == "svd":
-            u, v = linear_svd(weight.T, rank, num_iter=num_iter)
-            ced_module.ced_unit[0].weight.data = u.T.view_as(
-                ced_module.ced_unit[0].weight
-            )  # Initialize U
-            ced_module.ced_unit[1].weight.data = v.T.view_as(
-                ced_module.ced_unit[1].weight
-            )  # Initialize V
-            if module.bias is not None:
-                ced_module.ced_unit[1].bias.data = module.bias.data
-        else:
-            raise Exception(f"Unknown solver `{solver}`")
+        U, V = linear_svd(weight.T, rank)
+        ced_module.ced_unit[0].weight.data = U.T.view_as(
+            ced_module.ced_unit[0].weight
+        )  # Initialize U
+        ced_module.ced_unit[1].weight.data = V.T.view_as(
+            ced_module.ced_unit[1].weight
+        )  # Initialize Vh
+        if module.bias is not None:
+            ced_module.ced_unit[1].bias.data = module.bias.data
 
         # Return module
         return ced_module
@@ -190,8 +142,6 @@ Input:
     module - the module (nn.Module) to be factorized (required)
     rank - the rank to be applied for low-rank factorization (required)
     deepcopy - deepcopy module before factorization, return new factorized copy of the model (default: False)
-    solver - solver for network initialization ('random', 'svd', 'snmf') (default: 'random')
-    num_iter - number of iteration for  'svd' and 'snmf' solvers (default: 10)
     submodules - submodules of model of which the factorization will be applied (default: None)
     fact_led_unit - flag for skipping factorization on LED and CED unit (default: False)
     
@@ -203,8 +153,6 @@ Output:
 def auto_fact(
     module,
     rank,
-    solver="random",
-    num_iter=10,
     submodules=None,
     deepcopy=False,
     fact_led_unit=False,
@@ -218,8 +166,6 @@ def auto_fact(
         module,
         reference_module,
         rank,
-        solver,
-        num_iter,
         submodules,
         fact_led_unit,
         factorize_child,
@@ -232,7 +178,7 @@ def auto_fact(
             nn.Conv3d,
             HFConv1D,
         ]:
-            return factorize_module(module, rank, fact_led_unit, solver, num_iter)
+            return factorize_module(module, rank, fact_led_unit)
 
         for key, reference_key in zip(module._modules, reference_module._modules):
             # Skip LED or CED units if `fact_led_unit` is True
@@ -255,7 +201,7 @@ def auto_fact(
             ):
                 # Factorize Linear to LED and Convolution to CED
                 module._modules[key] = factorize_module(
-                    module._modules[key], rank, fact_led_unit, solver, num_iter
+                    module._modules[key], rank, fact_led_unit
                 )
             else:
                 # Perform recursive tracing
@@ -268,8 +214,6 @@ def auto_fact(
                             module._modules[key],
                             reference_module._modules[reference_key],
                             rank,
-                            solver,
-                            num_iter,
                             submodules,
                             fact_led_unit=fact_led_unit,
                             factorize_child=True,
@@ -279,8 +223,6 @@ def auto_fact(
                             module._modules[key],
                             reference_module._modules[reference_key],
                             rank,
-                            solver,
-                            num_iter,
                             submodules,
                             fact_led_unit=fact_led_unit,
                             factorize_child=factorize_child,
@@ -289,5 +231,5 @@ def auto_fact(
 
     # Perform recursive factorization
     return auto_fact_recursive(
-        copy_module, module, rank, solver, num_iter, submodules, fact_led_unit, False
+        copy_module, module, rank, submodules, fact_led_unit, False
     )
