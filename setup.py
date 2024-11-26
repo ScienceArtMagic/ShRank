@@ -7,14 +7,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setuptools.setup(
     name="shrank",
     version=version,
-    author="Samuel Cahyawijaya",
-    author_email="samuel.cahyawijaya@gmail.com",
+    author="🧪🖌️🪄",
+    author_email="mike@scienceartmagic.com",
     description="Automatic Factorization package for PyTorch modules",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/ScienceArtMagic/shrank",
+    url="https://github.com/ScienceArtMagic/ShRank",
     project_urls={
-        "Bug Tracker": "https://github.com/ScienceArtMagic/shrank/issues",
+        "Bug Tracker": "https://github.com/ScienceArtMagic/ShRank/issues",
     },
     classifiers=[
         "Programming Language :: Python :: 3",

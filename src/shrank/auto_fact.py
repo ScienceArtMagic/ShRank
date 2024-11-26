@@ -1,5 +1,5 @@
 import copy
-from typing import Literal, Tuple, Union
+from typing import Tuple, Union
 import torch
 import torch.nn as nn
 from .lr_module import LED, CED
@@ -15,8 +15,7 @@ Output:
 """
 
 
-def linear_svd(weight, rank):
-
+def linear_svd(weight, rank: int):
     U, S, Vh = torch.linalg.svd(weight.T)
     return U[:, :rank] @ torch.diag(S[:rank]), Vh[:rank, :].T
 
@@ -37,8 +36,6 @@ def factorize_module(
     rank: int,
     fact_led_unit,
 ):
-    module_type = type(module)
-
     def get_fractional_rank(rank: int, limit_rank: int) -> Tuple[int, int]:
         # Define rank from the given rank percentage
         if rank < 1:
@@ -49,7 +46,7 @@ def factorize_module(
 
         # Handle grouped convolution
         if (
-            module_type in [nn.Conv1d, nn.Conv2d, nn.Conv3d]
+            type(module) in [nn.Conv1d, nn.Conv2d, nn.Conv3d]
             and module.groups > 1
             and rank % module.groups > 0
         ):
@@ -65,10 +62,10 @@ def factorize_module(
             # Ignore if input/output features are smaller than rank to prevent factorization on low dimensional input/output vector
             return module
 
-    if module_type in [nn.Linear, HFConv1D]:
+    if type(module) in [nn.Linear, HFConv1D]:
         in_features, out_features = (
             (module.in_features, module.out_features)
-            if module_type == nn.Linear
+            if type(module) is nn.Linear
             else module.weight.shape
         )
         limit_rank = int((in_features * out_features) / (in_features + out_features))
@@ -76,7 +73,7 @@ def factorize_module(
         warn_over_limit_rank(rank, limit_rank)
 
         # Extract module weight
-        weight = module.weight if module_type == nn.Linear else module.weight.T
+        weight = module.weight if type(module) is nn.Linear else module.weight.T
 
         # Create LED unit
         led_module = LED(
@@ -96,7 +93,7 @@ def factorize_module(
 
         # Return module
         return led_module
-    elif module_type in [nn.Conv1d, nn.Conv2d, nn.Conv3d]:
+    elif type(module) in [nn.Conv1d, nn.Conv2d, nn.Conv3d]:
         limit_rank = int(
             (module.in_channels * (module.out_channels // module.groups))
             / (module.in_channels + (module.out_channels // module.groups))
