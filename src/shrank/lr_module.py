@@ -34,9 +34,9 @@ class CED(nn.Module):
 
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        r,
+        in_channels: int,
+        out_channels: int,
+        r: int,
         kernel_size,
         stride=1,
         padding=0,
