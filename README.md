@@ -12,12 +12,6 @@ ShRank seeks over your PyTorch model and replaces all `Linear`/GPT "`Conv1D`" la
 
 For the time being, ShRank is focused exclusively on using a faster, non-random implementation of SVD (`torch.linalg.svg` instead of `torch.svd_lowrank` used in Greenformer's SVD solver). Removed Greenformer's NMF and SNMF solvers (due to unmaintained dependency AFAICT), as well as the random (from scratch) solver (just do `from shrank.lr_module import LED, CED` and use them in place of [`nn.Linear`, `transformers.modeling_utils.Conv1D` (GPT-style '1D convolution' aka transposed linear)] or [`nn.Conv1d`, `nn.Conv2d`, `nn.Conv3d`], respectively).
 
-### Grouped Convolutions
-
-In the case of grouped convolutions where the `groups` value is larger than the specified rank, `auto_fact` will skip them by default (`skip_high_groups=True`). You can override this by setting `skip_high_groups=False` (depending on your rank, this might ***add*** parameters, counterintuitively). Since `groups` can't be higher than a convolution's `in_channels` or `out_channels` (and `ced_module[0]`'s `out_channels` value is the rank), this will change its `groups` value to rank.
-
-By default, only the first low-rank layer `ced_module[0]` sets groups (the lesser of rank or the `groups` of the original conv module). If you want `ced_module[1]` to be grouped as well (same as `ced_module[0]`, you can set `groups_out=True`).
-
 ### How to Install
 ```
 # Not yet, will consider publishing to PyPI
@@ -27,7 +21,20 @@ By default, only the first low-rank layer `ced_module[0]` sets groups (the lesse
 pip install git+https://github.com/ScienceArtMagic/ShRank.git
 ```
 
-### Usage
+### Usage (TODO: update)
+
+The examples below only convert the PyTorch model (in memory).
+
+Save it according to the docs of Hugging Face Transformers, PyTorch, TorchVision, etc.
+
+At minimum, you will need to add `rank` to your model configuration (as well as `groups_out` for convolutions, if you enable this during conversion). You'll also need to replace references to the original linear or convolution modules with LED or CED, respectively, in your e.g. `modeling_{model}.py`
+
+#### Grouped Convolutions
+
+In the case of grouped convolutions where the `groups` value is larger than the specified rank (e.g. Mamba), `auto_fact` will skip them by default (`skip_high_groups=True`). You can override this by setting `skip_high_groups=False` (depending on your rank, this might ***add*** parameters, counterintuitively). Since `groups` can't be higher than a convolution's `in_channels` or `out_channels` (and `ced_module[0]`'s `out_channels` value is the rank), this will change its `groups` value to rank.
+
+By default, only the first low-rank layer `ced_module[0]` sets groups (the lesser of rank or the `groups` of the original conv module). If you want `ced_module[1]` to be grouped as well (same as `ced_module[0]`, you can set `groups_out=True`).
+
 ##### BERT Model
 ```
 from transformers import BertModel, BertConfig
