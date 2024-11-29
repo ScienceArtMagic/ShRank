@@ -15,8 +15,8 @@ Output:
 """
 
 
-def linear_svd(weight, rank: int):
-    U, S, Vh = torch.linalg.svd(weight.T)
+def lr_svd(weight, rank: int):
+    U, S, Vh = torch.linalg.svd(weight.T, full_matrices=True)
     return U[:, :rank] @ torch.diag(S[:rank]), Vh[:rank, :].T
 
 
@@ -36,28 +36,18 @@ def factorize_module(
     rank: int,
     fact_led_unit,
 ):
-    def get_fractional_rank(rank: int, limit_rank: int) -> Tuple[int, int]:
-        # Define rank from the given rank percentage
-        if rank < 1:
-            rank = int(limit_rank * rank)
-            if rank == 0:
-                return module
-        rank = int(rank)
-
-        # Handle grouped convolution
-        if (
-            type(module) in [nn.Conv1d, nn.Conv2d, nn.Conv3d]
-            and module.groups > 1
-            and rank % module.groups > 0
-        ):
-            rank = (1 + (rank // module.groups)) * module.groups
-
-        return rank
+    # def get_fractional_rank(rank: int, limit_rank: int) -> Tuple[int, int]:
+    #     # Define rank from the given rank percentage
+    #     if rank < 1:
+    #         rank = int(limit_rank * rank)
+    #         if rank == 0:
+    #             return module
+    #     rank = int(rank)
 
     def warn_over_limit_rank(rank: int, limit_rank: int):
         if limit_rank <= rank:
             warnings.warn(
-                f"skipping convolution with in: {module.in_channels}, out: {module.out_channels // module.groups}, rank: {rank}"
+                f"skipping {"linear" if type(module) is nn.Linear else "convolution"} with in: {module.in_features if type(module) is nn.Linear else module.in_channels}, out: {module.out_features if type(module) is nn.Linear else module.out_channels // module.groups}, rank: {rank}"
             )
             # Ignore if input/output features are smaller than rank to prevent factorization on low dimensional input/output vector
             return module
@@ -69,7 +59,6 @@ def factorize_module(
             else module.weight.shape
         )
         limit_rank = int((in_features * out_features) / (in_features + out_features))
-        rank = get_fractional_rank(rank, limit_rank)
         warn_over_limit_rank(rank, limit_rank)
 
         # Extract module weight
@@ -85,7 +74,7 @@ def factorize_module(
         )
 
         # Initialize matrix
-        U, V = linear_svd(weight.T, rank)
+        U, V = lr_svd(weight.T, rank)
         led_module.led_unit[0].weight.data = U.T  # Initialize U
         led_module.led_unit[1].weight.data = V.T  # Initialize V
         if module.bias is not None:
@@ -98,7 +87,7 @@ def factorize_module(
             (module.in_channels * (module.out_channels // module.groups))
             / (module.in_channels + (module.out_channels // module.groups))
         )
-        rank = get_fractional_rank(rank, limit_rank)
+        # rank = get_fractional_rank(rank, limit_rank)
         warn_over_limit_rank(rank, limit_rank)
 
         # Extract layer weight
@@ -119,18 +108,23 @@ def factorize_module(
             device=module.weight.device,
         )
 
-        # Initialize matrix
-        U, V = linear_svd(weight.T, rank)
-        ced_module.ced_unit[0].weight.data = U.T.view_as(
-            ced_module.ced_unit[0].weight
-        )  # Initialize U
-        ced_module.ced_unit[1].weight.data = V.T.view_as(
-            ced_module.ced_unit[1].weight
-        )  # Initialize Vh
+        # # Initialize matrix
+        U, V = lr_svd(
+            weight,
+            rank,
+        )
+        ced_module.ced_unit[0].weight.data = U.T
+        # .view_as(
+        #     ced_module.ced_unit[0].weight
+        # )  # Initialize U
+        ced_module.ced_unit[1].weight.data = V.T
+        # .view_as(
+        #     ced_module.ced_unit[1].weight
+        # )  # Initialize Vh
         if module.bias is not None:
             ced_module.ced_unit[1].bias.data = module.bias.data
 
-        # Return module
+        #     # Return module
         return ced_module
 
 
