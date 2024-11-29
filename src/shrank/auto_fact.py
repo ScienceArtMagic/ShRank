@@ -1,5 +1,4 @@
 import copy
-from dataclasses import DataClass
 import torch
 import torch.nn as nn
 from .lr_module import LED, CED
