@@ -42,6 +42,7 @@ class CED(nn.Module):
         padding=0,
         dilation=1,
         groups=1,
+        groups_out=False,  # Make ced_unit[1] a grouped convolution if True
         padding_mode="zeros",
         bias=False,
         device="cpu",
@@ -80,6 +81,7 @@ class CED(nn.Module):
                 out_channels=out_channels,
                 kernel_size=fact_ks,
                 bias=bias,
+                groups=min(r, groups) if groups_out else 1,
                 device=device,
             ),
         )

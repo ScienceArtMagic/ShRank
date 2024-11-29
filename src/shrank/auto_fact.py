@@ -1,4 +1,5 @@
 import copy
+from dataclasses import DataClass
 import torch
 import torch.nn as nn
 from .lr_module import LED, CED
@@ -23,6 +24,8 @@ r"""
 Input:
     module - nn.module to be factorized
     rank - the rank to be applied for low-rank factorization
+    groups_out - (convolution only) make ced_unit[1] a grouped convolution if True (and skip_high_groups == False)
+    skip_high_groups - (convolution only) don't factorize grouped convolution if out_channels // groups > rank
     fact_led_unit - flag for skipping factorization on LED and CED unit
     
 Output:
@@ -33,7 +36,9 @@ Output:
 def factorize_module(
     module: nn.Linear | HFConv1D | nn.Conv1d | nn.Conv2d | nn.Conv3d,
     rank: int,
-    fact_led_unit,
+    groups_out: bool,
+    skip_high_groups: bool,
+    # fact_led_unit: bool,
 ):
     # def get_fractional_rank(rank: int, limit_rank: int) -> Tuple[int, int]:
     #     # Define rank from the given rank percentage
@@ -43,14 +48,6 @@ def factorize_module(
     #             return module
     #     rank = int(rank)
 
-    def warn_over_limit_rank(rank: int, limit_rank: int):
-        if limit_rank <= rank:
-            warnings.warn(
-                f"skipping {"linear" if type(module) is nn.Linear else "convolution"} with in: {module.in_features if type(module) is nn.Linear else module.in_channels}, out: {module.out_features if type(module) is nn.Linear else module.out_channels // module.groups}, rank: {rank}"
-            )
-            # Ignore if input/output features are smaller than rank to prevent factorization on low dimensional input/output vector
-            return module
-
     if type(module) in [nn.Linear, HFConv1D]:
         in_features, out_features = (
             (module.in_features, module.out_features)
@@ -58,7 +55,12 @@ def factorize_module(
             else module.weight.shape
         )
         limit_rank = int((in_features * out_features) / (in_features + out_features))
-        warn_over_limit_rank(rank, limit_rank)
+        if limit_rank <= rank:
+            warnings.warn(
+                f"skipping {type(module)} with in: {module.in_features}, out: {module.out_features}, rank: {rank}"
+            )
+            # Ignore if input/output features are smaller than rank to prevent factorization on low dimensional input/output vector
+            return module
 
         # Extract module weight
         weight = module.weight if type(module) is nn.Linear else module.weight.T
@@ -82,12 +84,20 @@ def factorize_module(
         # Return module
         return led_module
     elif type(module) in [nn.Conv1d, nn.Conv2d, nn.Conv3d]:
-        limit_rank = int(
-            (module.in_channels * (module.out_channels // module.groups))
-            / (module.in_channels + (module.out_channels // module.groups))
+        out_limit = (
+            module.out_channels // module.groups
+            if skip_high_groups
+            else module.out_channels
         )
-        # rank = get_fractional_rank(rank, limit_rank)
-        warn_over_limit_rank(rank, limit_rank)
+        limit_rank = int(
+            (module.in_channels * (out_limit)) / (module.in_channels + (out_limit))
+        )
+        if limit_rank <= rank:
+            warnings.warn(
+                f"skipping {type(module)} with in: {module.in_channels}, out: {module.out_channels // module.groups}, rank: {rank}"
+            )
+            # Ignore if input/output channels are smaller than rank to prevent factorization on low dimensional input/output vector
+            return module
 
         # Extract layer weight
         weight = module.weight.view(module.out_channels, -1)
@@ -103,6 +113,7 @@ def factorize_module(
             dilation=module.dilation,
             padding_mode=module.padding_mode,
             groups=module.groups,
+            groups_out=groups_out,
             bias=module.bias is not None,
             device=module.weight.device,
         )
@@ -122,8 +133,6 @@ def factorize_module(
         # )  # Initialize Vh
         if module.bias is not None:
             ced_module.ced_unit[1].bias.data = module.bias.data
-
-        #     # Return module
         return ced_module
 
 
@@ -141,8 +150,10 @@ Output:
 
 
 def auto_fact(
-    module,
-    rank,
+    module: nn.Linear | HFConv1D | nn.Conv1d | nn.Conv2d | nn.Conv3d | LED | CED,
+    rank: int,
+    groups_out=False,
+    skip_high_groups=True,
     submodules=None,
     deepcopy=False,
     fact_led_unit=False,
@@ -153,12 +164,14 @@ def auto_fact(
         copy_module = module
 
     def auto_fact_recursive(
-        module,
-        reference_module,
-        rank,
+        module: nn.Linear | HFConv1D | nn.Conv1d | nn.Conv2d | nn.Conv3d,
+        reference_module: nn.Linear | HFConv1D | nn.Conv1d | nn.Conv2d | nn.Conv3d,
+        rank: int,
+        groups_out: bool,
+        skip_high_groups: bool,
         submodules,
-        fact_led_unit,
-        factorize_child,
+        fact_led_unit: bool,
+        factorize_child: bool,
     ):
         # If the top module is Linear or Conv, return the factorized module directly
         if type(reference_module) in [
@@ -168,7 +181,13 @@ def auto_fact(
             nn.Conv3d,
             HFConv1D,
         ]:
-            return factorize_module(module, rank, fact_led_unit)
+            return factorize_module(
+                module,
+                rank,
+                groups_out,
+                skip_high_groups,
+                # fact_led_unit
+            )
 
         for key, reference_key in zip(module._modules, reference_module._modules):
             # Skip LED or CED units if `fact_led_unit` is True
@@ -191,7 +210,11 @@ def auto_fact(
             ):
                 # Factorize Linear to LED and Convolution to CED
                 module._modules[key] = factorize_module(
-                    module._modules[key], rank, fact_led_unit
+                    module._modules[key],
+                    rank,
+                    groups_out,
+                    skip_high_groups,
+                    # fact_led_unit,
                 )
             else:
                 # Perform recursive tracing
@@ -204,6 +227,8 @@ def auto_fact(
                             module._modules[key],
                             reference_module._modules[reference_key],
                             rank,
+                            groups_out,
+                            skip_high_groups,
                             submodules,
                             fact_led_unit=fact_led_unit,
                             factorize_child=True,
@@ -213,6 +238,8 @@ def auto_fact(
                             module._modules[key],
                             reference_module._modules[reference_key],
                             rank,
+                            groups_out,
+                            skip_high_groups,
                             submodules,
                             fact_led_unit=fact_led_unit,
                             factorize_child=factorize_child,
@@ -221,5 +248,12 @@ def auto_fact(
 
     # Perform recursive factorization
     return auto_fact_recursive(
-        copy_module, module, rank, submodules, fact_led_unit, False
+        copy_module,
+        module,
+        rank,
+        groups_out,
+        skip_high_groups,
+        submodules,
+        fact_led_unit,
+        False,
     )
