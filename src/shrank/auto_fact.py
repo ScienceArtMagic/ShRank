@@ -1,5 +1,4 @@
 import copy
-from typing import Tuple, Union
 import torch
 import torch.nn as nn
 from .lr_module import LED, CED
@@ -32,7 +31,7 @@ Output:
 
 
 def factorize_module(
-    module: Union[nn.Linear, HFConv1D, nn.Conv1d, nn.Conv2d, nn.Conv3d],
+    module: nn.Linear | HFConv1D | nn.Conv1d | nn.Conv2d | nn.Conv3d,
     rank: int,
     fact_led_unit,
 ):
